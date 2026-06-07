@@ -18,7 +18,7 @@ Still maintain to get it better and can be used by other people.
 
 # OCR Leaderboard
 
-Program `ocr_leaderboard.py` membaca semua gambar di folder `datasets/`, melakukan OCR, lalu menulis hasil gabungan ke `output.json`.
+Program `ocr_leaderboard.py` membaca semua gambar di folder `datasets/`, melakukan OCR, lalu menulis hasil gabungan ke `output.json`. Dataset juga bisa di-fetch langsung dari Google Drive.
 
 ## Persiapan
 
@@ -29,7 +29,7 @@ sudo apt-get update
 sudo apt-get install -y tesseract-ocr tesseract-ocr-ind
 ```
 
-Install dependency Python opsional untuk preprocessing gambar:
+Install dependency Python untuk preprocessing gambar dan download Google Drive:
 
 ```bash
 python3 -m pip install -r requirements.txt
@@ -42,6 +42,41 @@ python3 -m pip install -r requirements.txt
 
 ```bash
 python3 ocr_leaderboard.py
+```
+
+Untuk mengambil dataset dari Google Drive terlebih dahulu:
+
+```bash
+python3 ocr_leaderboard.py --fetch-gdrive
+```
+
+Default Google Drive folder:
+
+```text
+https://drive.google.com/drive/folders/1e8cx33AYnAZOehlh7FnJWZNiFEmDJ6R7
+```
+
+Untuk percobaan awal agar tidak memproses semua gambar sekaligus:
+
+```bash
+python3 ocr_leaderboard.py --fetch-gdrive --limit 10 --workers 2
+```
+
+## Google Colab / Google Cloud Shell
+
+Jalankan command berikut di cell Colab atau terminal Cloud Shell:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y tesseract-ocr tesseract-ocr-ind
+python3 -m pip install -r requirements.txt
+python3 ocr_leaderboard.py --fetch-gdrive --limit 10 --workers 2
+```
+
+Jika hasil sample sudah sesuai, hapus `--limit 10` untuk memproses semua gambar:
+
+```bash
+python3 ocr_leaderboard.py --fetch-gdrive --workers 2
 ```
 
 Output akan tersimpan di `output.json` dengan struktur `images` untuk hasil per gambar dan `entries` sebagai gabungan semua baris leaderboard. Setiap item di `entries` berisi `rank`, `nama_pemain`, dan `point`.

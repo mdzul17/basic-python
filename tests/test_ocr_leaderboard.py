@@ -40,6 +40,27 @@ class ParseLeaderboardTextTest(unittest.TestCase):
         self.assertIsNone(entries[0].point)
         self.assertEqual(entries[0].point_label, "Belum Diperoleh")
 
+    def test_infers_rank_when_ocr_reads_medal_rows_without_rank_numbers(self):
+        raw_text = """
+        Peringkat Player + Power
+        f iy Ra 4] ZraskOvert ord 10663 a
+        [ Oy Ine Sentinel 10150
+        & fa Naffx Seger Seger 9654 a
+        4 Cy MILLO 9429 a
+        """
+
+        entries = parse_leaderboard_text(raw_text, "datasets/leaderboard.jpg")
+
+        self.assertEqual(
+            [(entry.rank, entry.nama_pemain, entry.point) for entry in entries],
+            [
+                (1, "ZraskOvert ord", 10663),
+                (2, "Sentinel", 10150),
+                (3, "Naffx Seger Seger", 9654),
+                (4, "MILLO", 9429),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
