@@ -358,7 +358,12 @@ def tesseract_languages(primary_language: str) -> list[str | None]:
     return languages
 
 
-def run_tesseract(image_path: Path, language: str, timeout: int) -> tuple[str, list[str]]:
+def run_tesseract(
+    image_path: Path,
+    language: str,
+    timeout: int,
+    include_raw_attempts: bool = False,
+) -> tuple[str, list[str], list[dict]]:
     """Run Tesseract over image variants and return the best raw OCR text."""
 
     if shutil.which("tesseract") is None:
@@ -367,6 +372,7 @@ def run_tesseract(image_path: Path, language: str, timeout: int) -> tuple[str, l
         )
 
     errors: list[str] = []
+    raw_attempts: list[dict] = []
     best_text = ""
     best_score = (-1, -1)
 
@@ -393,37 +399,76 @@ def run_tesseract(image_path: Path, language: str, timeout: int) -> tuple[str, l
                     )
                 except subprocess.TimeoutExpired:
                     lang_label = lang or "default"
-                    errors.append(f"{candidate.name} ({lang_label}): timeout setelah {timeout} detik")
+                    error_message = f"{candidate.name} ({lang_label}): timeout setelah {timeout} detik"
+                    errors.append(error_message)
+                    if include_raw_attempts:
+                        raw_attempts.append(
+                            {
+                                "candidate": candidate.name,
+                                "language": lang_label,
+                                "raw_text": "",
+                                "parsed_entries": [],
+                                "error": error_message,
+                            }
+                        )
                     continue
 
                 if result.returncode != 0:
                     lang_label = lang or "default"
-                    errors.append(f"{candidate.name} ({lang_label}): {result.stderr.strip()}")
+                    error_message = f"{candidate.name} ({lang_label}): {result.stderr.strip()}"
+                    errors.append(error_message)
+                    if include_raw_attempts:
+                        raw_attempts.append(
+                            {
+                                "candidate": candidate.name,
+                                "language": lang_label,
+                                "raw_text": result.stdout.strip(),
+                                "parsed_entries": [],
+                                "error": error_message,
+                            }
+                        )
                     continue
 
+                lang_label = lang or "default"
                 raw_text = result.stdout.strip()
                 parsed_entries = parse_leaderboard_text(raw_text, str(image_path))
+                if include_raw_attempts:
+                    raw_attempts.append(
+                        {
+                            "candidate": candidate.name,
+                            "language": lang_label,
+                            "raw_text": raw_text,
+                            "parsed_entries": [asdict(entry) for entry in parsed_entries],
+                            "error": None,
+                        }
+                    )
                 score = (len(parsed_entries), len(raw_text))
                 if score > best_score:
                     best_score = score
                     best_text = raw_text
-                if len(parsed_entries) >= 5:
-                    return raw_text, errors
+                if len(parsed_entries) >= 5 and not include_raw_attempts:
+                    return raw_text, errors, raw_attempts
 
-    return best_text, errors
+    return best_text, errors, raw_attempts
 
 
-def process_image(image_path: Path, language: str, timeout: int) -> dict:
+def process_image(image_path: Path, language: str, timeout: int, include_raw_attempts: bool = False) -> dict:
     """OCR one image and return a serializable result payload."""
 
     source_image = str(image_path.relative_to(Path.cwd())) if image_path.is_relative_to(Path.cwd()) else str(image_path)
 
     try:
-        raw_text, errors = run_tesseract(image_path, language, timeout)
+        raw_text, errors, raw_attempts = run_tesseract(
+            image_path,
+            language,
+            timeout,
+            include_raw_attempts=include_raw_attempts,
+        )
         entries = parse_leaderboard_text(raw_text, source_image)
         error = None
     except Exception as exc:  # The per-image error is reported in output.json.
         raw_text = ""
+        raw_attempts = []
         errors = []
         entries = []
         error = str(exc)
@@ -432,6 +477,7 @@ def process_image(image_path: Path, language: str, timeout: int) -> dict:
         "image": source_image,
         "entries": [asdict(entry) for entry in entries],
         "raw_text": raw_text,
+        "raw_ocr_attempts": raw_attempts,
         "error": error,
         "ocr_warnings": errors,
     }
@@ -454,7 +500,13 @@ def write_output(output_path: Path, input_dir: Path, image_results: list[dict]) 
     output_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-def process_images(image_paths: list[Path], language: str, timeout: int, workers: int) -> list[dict]:
+def process_images(
+    image_paths: list[Path],
+    language: str,
+    timeout: int,
+    workers: int,
+    include_raw_attempts: bool = False,
+) -> list[dict]:
     """Process images concurrently while preserving dataset order."""
 
     if not image_paths:
@@ -466,12 +518,17 @@ def process_images(image_paths: list[Path], language: str, timeout: int, workers
     if workers == 1:
         for index, image_path in enumerate(image_paths, start=1):
             print(f"[{index}/{len(image_paths)}] OCR {image_path}", flush=True)
-            results[index - 1] = process_image(image_path, language, timeout)
+            results[index - 1] = process_image(
+                image_path,
+                language,
+                timeout,
+                include_raw_attempts=include_raw_attempts,
+            )
         return [result for result in results if result is not None]
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(process_image, image_path, language, timeout): (index, image_path)
+            executor.submit(process_image, image_path, language, timeout, include_raw_attempts): (index, image_path)
             for index, image_path in enumerate(image_paths)
         }
         completed = 0
@@ -525,6 +582,11 @@ def parse_args() -> argparse.Namespace:
         default=min(4, os.cpu_count() or 1),
         help="Jumlah proses OCR paralel, default maksimal 4.",
     )
+    parser.add_argument(
+        "--debug-ocr",
+        action="store_true",
+        help="Simpan raw OCR dari semua crop/preprocessing ke output JSON untuk debugging akurasi.",
+    )
     return parser.parse_args()
 
 
@@ -554,7 +616,13 @@ def main() -> int:
                 flush=True,
             )
 
-    image_results = process_images(image_paths, args.language, args.timeout, args.workers)
+    image_results = process_images(
+        image_paths,
+        args.language,
+        args.timeout,
+        args.workers,
+        include_raw_attempts=args.debug_ocr,
+    )
     write_output(output_path, input_dir, image_results)
 
     print(f"Processed {len(image_results)} image(s). Output written to {output_path}.")

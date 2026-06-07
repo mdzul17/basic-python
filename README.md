@@ -62,6 +62,15 @@ Untuk percobaan awal agar tidak memproses semua gambar sekaligus:
 python3 ocr_leaderboard.py --fetch-gdrive --limit 10 --workers 2
 ```
 
+Untuk debugging akurasi OCR, tambahkan `--debug-ocr`. Output JSON akan menyertakan:
+
+- `raw_text`: raw OCR dari kandidat terbaik per gambar.
+- `raw_ocr_attempts`: raw OCR dari semua crop/preprocessing yang dicoba.
+
+```bash
+python3 ocr_leaderboard.py --fetch-gdrive --limit 5 --workers 2 -l eng --debug-ocr
+```
+
 ## Google Colab / Google Cloud Shell
 
 Jalankan command berikut di cell Colab atau terminal Cloud Shell:
